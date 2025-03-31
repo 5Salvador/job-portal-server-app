@@ -71,7 +71,7 @@ async function run() {
     const upload = multer({ storage: storage });
 
     // Get all jobs
-    app.get("/all-jobs", async (req, res) => {
+    app.get("/api/all-jobs", async (req, res) => {
       const jobs = await jobsCollections.find().toArray();
       res.json(jobs);
     });
@@ -300,12 +300,10 @@ async function run() {
         const savedJobs = await savedJobsCollection.find({ userId }).toArray();
 
         if (!savedJobs.length) {
-          return res
-            .status(404)
-            .json({
-              message: "No saved jobs found for this user",
-              status: false,
-            });
+          return res.status(404).json({
+            message: "No saved jobs found for this user",
+            status: false,
+          });
         }
 
         // Fetch job details for each saved job
