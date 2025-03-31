@@ -48,7 +48,7 @@ async function run() {
     app.get("/", (req, res) => res.send("Job Portal API Running 🚀"));
 
     // Post a job
-    app.post("/post-job", async (req, res) => {
+    app.post("/api/post-job", async (req, res) => {
       const body = { ...req.body, createdAt: new Date() };
       const result = await jobsCollections.insertOne(body);
       result.insertedId
@@ -57,13 +57,13 @@ async function run() {
     });
 
     // Get all jobs
-    app.get("/all-jobs", async (req, res) => {
+    app.get("/api/all-jobs", async (req, res) => {
       const jobs = await jobsCollections.find().toArray();
       res.json(jobs);
     });
 
     // Get a single job by ID
-    app.get("/all-jobs/:id", async (req, res) => {
+    app.get("/api/all-jobs/:id", async (req, res) => {
       try {
         const id = req.params.id;
         if (!ObjectId.isValid(id)) return res.status(400).json({ message: "Invalid Job ID format" });
@@ -77,7 +77,7 @@ async function run() {
     });
 
     // Get jobs by user ID
-    app.get("/myJobs/:email", async (req, res) => {
+    app.get("/api/myJobs/:email", async (req, res) => {
       try {
         const jobs = await jobsCollections.find({ postedBy: req.params.email }).toArray();
         jobs.length
@@ -89,13 +89,13 @@ async function run() {
     });
 
     // Delete a job
-    app.delete("/job/:id", async (req, res) => {
+    app.delete("/api/job/:id", async (req, res) => {
       const result = await jobsCollections.deleteOne({ _id: new ObjectId(req.params.id) });
       res.send(result);
     });
 
     // Update a job
-    app.patch("/update-job/:id", async (req, res) => {
+    app.patch("/api/update-job/:id", async (req, res) => {
       try {
         const id = req.params.id;
         const { skills, ...otherJobData } = req.body;
@@ -145,7 +145,7 @@ async function run() {
     });
 
     // Apply for a job
-    app.post("/apply", upload.single("cv"), async (req, res) => {
+    app.post("/api/apply", upload.single("cv"), async (req, res) => {
       try {
         const { jobId, name, email, phone, address, describeYourself } = req.body;
         if (!req.file) return res.status(400).json({ message: "CV file is required" });
