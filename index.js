@@ -1,18 +1,19 @@
 const express = require("express");
-const cors = require("cors");
-const multer = require("multer");
-const path = require("path");
-const { MongoClient, ObjectId, ServerApiVersion } = require("mongodb");
-require("dotenv").config();
-
 const app = express();
+const cors = require("cors");
+const router = express.Router();
+const Application = require("./models/application");
 const port = process.env.PORT || 5000;
+require("dotenv").config();
+console.log(process.env.DB_USER);
+console.log(process.env.DB_PASSWORD);
 
 // Middleware
 app.use(express.json());
 app.use(cors());
 
-// MongoDB connection
+const { MongoClient, ObjectId, ServerApiVersion } = require("mongodb");
+
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@job-portal.fbdrv.mongodb.net/?retryWrites=true&w=majority&appName=job-portal`;
 
 const client = new MongoClient(uri, {
@@ -25,132 +26,245 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
+    // Connect to the MongoDB client
     await client.connect();
-    console.log("Connected to MongoDB!");
 
+    // Create database and collection
     const db = client.db("mernJobPortal");
     const jobsCollections = db.collection("demoJobs");
-    const subscribersCollection = db.collection("subscribers");
-    const applicationsCollection = db.collection("applications");
-    const resumesCollection = db.collection("resumes");
-    const savedJobsCollection = db.collection("savedJobs");
-
-    // Multer Storage Configuration
-    const storage = multer.diskStorage({
-      destination: (req, file, cb) => cb(null, "uploads/"),
-      filename: (req, file, cb) =>
-        cb(null, file.fieldname + "-" + Date.now() + path.extname(file.originalname)),
-    });
-    const upload = multer({ storage });
-
-    // Routes
-
-    app.get("/", (req, res) => res.send("Job Portal API Running 🚀"));
 
     // Post a job
-    app.post("/api/post-job", async (req, res) => {
-      const body = { ...req.body, createdAt: new Date() };
+    app.post("/post-job", async (req, res) => {
+      const body = req.body;
+      body.createdAt = new Date();
       const result = await jobsCollections.insertOne(body);
-      result.insertedId
-        ? res.status(200).send(result)
-        : res.status(500).send({ message: "Cannot insert! Try again later." });
+      if (result.insertedId) {
+        return res.status(200).send(result);
+      } else {
+        return res.status(404).send({
+          message: "Cannot insert! Try again later.",
+          status: false,
+        });
+      }
     });
 
+    // Define a Schema & Model
+    const subscribersCollection = db.collection("subscribers");
+
+    //multer file Storage
+
+    const multer = require("multer");
+    const path = require("path");
+
+    const storage = multer.diskStorage({
+      destination: function (req, file, cb) {
+        cb(null, "uploads/"); // Save files in the "uploads" folder
+      },
+      filename: function (req, file, cb) {
+        cb(
+          null,
+          file.fieldname + "-" + Date.now() + path.extname(file.originalname)
+        );
+      },
+    });
+
+    const upload = multer({ storage: storage });
+
     // Get all jobs
-    app.get("/api/all-jobs", async (req, res) => {
+    app.get("/all-jobs", async (req, res) => {
       const jobs = await jobsCollections.find().toArray();
       res.json(jobs);
     });
 
     // Get a single job by ID
-    app.get("/api/all-jobs/:id", async (req, res) => {
+    app.get("/all-jobs/:id", async (req, res) => {
       try {
         const id = req.params.id;
-        if (!ObjectId.isValid(id)) return res.status(400).json({ message: "Invalid Job ID format" });
+
+        // Validate ObjectId before using it
+        if (!ObjectId.isValid(id)) {
+          return res
+            .status(400)
+            .json({ message: "Invalid Job ID format", status: false });
+        }
 
         const job = await jobsCollections.findOne({ _id: new ObjectId(id) });
-        job ? res.json(job) : res.status(404).json({ message: "Job not found" });
+
+        if (job) {
+          res.json(job);
+        } else {
+          res.status(404).json({ message: "Cannot find job", status: false });
+        }
       } catch (error) {
         console.error("Error fetching job:", error);
-        res.status(500).json({ message: "Internal Server Error" });
+        res
+          .status(500)
+          .json({ message: "Internal Server Error", status: false });
       }
     });
 
     // Get jobs by user ID
-    app.get("/api/myJobs/:email", async (req, res) => {
+    app.get("/myJobs/:email", async (req, res) => {
+      const email = req.params.email;
+
       try {
-        const jobs = await jobsCollections.find({ postedBy: req.params.email }).toArray();
-        jobs.length
-          ? res.json({ status: true, jobs })
-          : res.status(404).json({ message: "No jobs found for this user" });
+        const jobs = await jobsCollections.find({ postedBy: email }).toArray();
+
+        if (jobs.length > 0) {
+          res.json({ status: true, jobs });
+        } else {
+          res
+            .status(404)
+            .json({ message: "No jobs found for this user", status: false });
+        }
       } catch (error) {
-        res.status(500).json({ message: "Internal Server Error" });
+        console.error("Error fetching jobs:", error);
+        res
+          .status(500)
+          .json({ message: "Internal Server Error", status: false });
       }
     });
 
     // Delete a job
-    app.delete("/api/job/:id", async (req, res) => {
-      const result = await jobsCollections.deleteOne({ _id: new ObjectId(req.params.id) });
+    app.delete("/job/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const result = await jobsCollections.deleteOne(filter);
       res.send(result);
     });
 
     // Update a job
-    app.patch("/api/update-job/:id", async (req, res) => {
+    app.patch("/update-job/:id", async (req, res) => {
+      const id = req.params.id;
+      const { skills, ...otherJobData } = req.body; // Separate skills from other fields
+
+      const filter = { _id: new ObjectId(id) };
+      const options = { upsert: false }; // No upsert to avoid accidental job creation
+
       try {
-        const id = req.params.id;
-        const { skills, ...otherJobData } = req.body;
+        // Fetch the existing job
+        const existingJob = await jobsCollections.findOne(filter);
+        if (!existingJob) {
+          return res.status(404).json({ message: "Job not found" });
+        }
 
-        const existingJob = await jobsCollections.findOne({ _id: new ObjectId(id) });
-        if (!existingJob) return res.status(404).json({ message: "Job not found" });
+        // Process updates for `skills`
+        let updatedSkills = existingJob.skills || [];
 
-        const updateDoc = { $set: { ...otherJobData, skills: skills || existingJob.skills } };
-        const result = await jobsCollections.updateOne({ _id: new ObjectId(id) }, updateDoc);
-        res.json({ acknowledged: result.acknowledged, message: "Job updated successfully" });
+        if (Array.isArray(skills)) {
+          updatedSkills = skills; // Replace existing skills with new ones
+        }
+
+        // Build update document
+        const updateDoc = {
+          $set: { ...otherJobData, skills: updatedSkills }, // Update other fields and skills
+        };
+
+        // Handle empty fields (delete them from DB if removed in form)
+        Object.keys(updateDoc.$set).forEach((key) => {
+          if (updateDoc.$set[key] === "" || updateDoc.$set[key] === null) {
+            updateDoc.$unset = updateDoc.$unset || {}; // Initialize $unset if needed
+            updateDoc.$unset[key] = ""; // Mark the field for removal
+            delete updateDoc.$set[key]; // Remove it from $set
+          }
+        });
+
+        // Update job in the database
+        const result = await jobsCollections.updateOne(
+          filter,
+          updateDoc,
+          options
+        );
+
+        res.json({
+          acknowledged: result.acknowledged,
+          message: "Job updated successfully",
+        });
       } catch (error) {
+        console.error("Error updating job:", error);
         res.status(500).json({ error: "Failed to update job" });
       }
     });
 
-    // Store subscriber email
+    //Store subscriber email
+    // Store subscriber email using MongoDB driver
     app.post("/api/subscribe", async (req, res) => {
       const { email } = req.body;
-      if (!email) return res.status(400).json({ error: "Email is required" });
+
+      if (!email) {
+        return res.status(400).json({ error: "Email is required" });
+      }
 
       try {
-        const existingSubscriber = await subscribersCollection.findOne({ email });
-        if (existingSubscriber) return res.status(400).json({ error: "Email already subscribed" });
+        const db = client.db("mernJobPortal");
+        const subscribersCollection = db.collection("subscribers");
 
-        await subscribersCollection.insertOne({ email, subscribedAt: new Date() });
+        // Check if email already exists
+        const existingSubscriber = await subscribersCollection.findOne({
+          email,
+        });
+        if (existingSubscriber) {
+          return res.status(400).json({ error: "Email is already subscribed" });
+        }
+
+        // Save subscriber to MongoDB
+        const newSubscriber = {
+          email,
+          subscribedAt: new Date(),
+        };
+
+        await subscribersCollection.insertOne(newSubscriber);
+
         res.json({ message: "Subscribed successfully!" });
       } catch (error) {
+        console.error("Error subscribing:", error);
         res.status(500).json({ error: "Server error" });
       }
     });
 
-    // Upload CV
+    //Api for CV uploads
     app.post("/api/upload-cv", upload.single("cv"), async (req, res) => {
-      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
 
       try {
-        await resumesCollection.insertOne({
-          email: req.body.email,
-          fileName: req.file.filename,
-          filePath: req.file.path,
+        const db = client.db("mernJobPortal");
+        const resumesCollection = db.collection("resumes");
+
+        const newResume = {
+          email: req.body.email, // Associate resume with user email
+          fileName: req.file.filename, // Store file name
+          filePath: req.file.path, // Store file path
           uploadedAt: new Date(),
-        });
+        };
+
+        await resumesCollection.insertOne(newResume);
+
         res.json({ message: "CV uploaded successfully!", file: req.file });
       } catch (error) {
+        console.error("Error uploading CV:", error);
         res.status(500).json({ error: "Server error" });
       }
     });
 
-    // Apply for a job
-    app.post("/api/apply", upload.single("cv"), async (req, res) => {
+    // POST: Submit a job application
+    app.post("/apply", upload.single("cv"), async (req, res) => {
       try {
-        const { jobId, name, email, phone, address, describeYourself } = req.body;
-        if (!req.file) return res.status(400).json({ message: "CV file is required" });
+        console.log("Incoming request body:", req.body);
+        console.log("Uploaded file info:", req.file);
 
-        await applicationsCollection.insertOne({
+        const { jobId, name, email, phone, address, describeYourself } =
+          req.body;
+
+        if (!req.file) {
+          return res.status(400).json({ message: "CV file is required" });
+        }
+
+        const db = client.db("mernJobPortal");
+        const applicationsCollection = db.collection("applications");
+
+        const newApplication = {
           jobId,
           name,
           email,
@@ -159,26 +273,63 @@ async function run() {
           address,
           describeYourself,
           appliedAt: new Date(),
-        });
+        };
+
+        await applicationsCollection.insertOne(newApplication);
         res.status(201).json({ message: "Application submitted successfully" });
       } catch (error) {
-        res.status(500).json({ message: "Internal server error" });
+        console.error("Error submitting application:", error.message);
+        res
+          .status(500)
+          .json({ message: "Internal server error", error: error.message });
       }
     });
 
-    // Get saved jobs
-    app.get("/api/savedJobs/:userId", async (req, res) => {
-      try {
-        const savedJobs = await savedJobsCollection.find({ userId: req.params.userId }).toArray();
-        if (!savedJobs.length) return res.status(404).json({ message: "No saved jobs found" });
+    // Assuming MongoDB client has already been connected and db has been set up correctly
 
-        const jobIds = savedJobs.map((job) => new ObjectId(job.jobId));
-        const jobs = await jobsCollections.find({ _id: { $in: jobIds } }).toArray();
-        res.status(200).json({ savedJobs: jobs });
+    // Endpoint to fetch saved jobs for a user
+    app.get("/api/savedJobs/:userId", async (req, res) => {
+      const { userId } = req.params;
+
+      try {
+        const db = client.db("mernJobPortal");
+        const savedJobsCollection = db.collection("savedJobs");
+        const jobsCollection = db.collection("demoJobs");
+
+        // Find all saved jobs for the user
+        const savedJobs = await savedJobsCollection.find({ userId }).toArray();
+
+        if (!savedJobs.length) {
+          return res
+            .status(404)
+            .json({
+              message: "No saved jobs found for this user",
+              status: false,
+            });
+        }
+
+        // Fetch job details for each saved job
+        const jobIds = savedJobs.map(
+          (savedJob) => new ObjectId(savedJob.jobId)
+        );
+        const jobs = await jobsCollection
+          .find({ _id: { $in: jobIds } })
+          .toArray();
+
+        res.status(200).json({ status: true, savedJobs: jobs });
       } catch (error) {
+        console.error("Error fetching saved jobs:", error);
         res.status(500).json({ error: "Failed to fetch saved jobs" });
       }
     });
+
+    // Endpoint to save a job
+
+    // Send a ping to confirm a successful connection
+    await client.db("admin").command({ ping: 1 });
+    console.log(
+      "Pinged your deployment. You successfully connected to MongoDB!"
+    );
   } catch (err) {
     console.error(err);
   }
@@ -186,4 +337,10 @@ async function run() {
 
 run().catch(console.dir);
 
-module.exports = app;
+app.get("/", (req, res) => {
+  res.send("Hello Developer");
+});
+
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
