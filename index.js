@@ -288,39 +288,7 @@ async function run() {
     // Assuming MongoDB client has already been connected and db has been set up correctly
 
     // Endpoint to fetch saved jobs for a user
-    app.get("/api/savedJobs/:userId", async (req, res) => {
-      const { userId } = req.params;
-
-      try {
-        const db = client.db("mernJobPortal");
-        const savedJobsCollection = db.collection("savedJobs");
-        const jobsCollection = db.collection("demoJobs");
-
-        // Find all saved jobs for the user
-        const savedJobs = await savedJobsCollection.find({ userId }).toArray();
-
-        if (!savedJobs.length) {
-          return res.status(404).json({
-            message: "No saved jobs found for this user",
-            status: false,
-          });
-        }
-
-        // Fetch job details for each saved job
-        const jobIds = savedJobs.map(
-          (savedJob) => new ObjectId(savedJob.jobId)
-        );
-        const jobs = await jobsCollection
-          .find({ _id: { $in: jobIds } })
-          .toArray();
-
-        res.status(200).json({ status: true, savedJobs: jobs });
-      } catch (error) {
-        console.error("Error fetching saved jobs:", error);
-        res.status(500).json({ error: "Failed to fetch saved jobs" });
-      }
-    });
-
+   
     // Endpoint to save a job
 
     // Send a ping to confirm a successful connection
